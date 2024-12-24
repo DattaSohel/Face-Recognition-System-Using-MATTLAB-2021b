@@ -1,0 +1,59 @@
+% Step 1: Load Pretrained Network
+net = resnet50; % Pre-trained ResNet50 for feature extraction
+inputSize = net.Layers(1).InputSize;
+
+% Step 2: Load Database of Known Faces
+% Folder structure: "Database/<PersonName>/image1.jpg, image2.jpg, ..."
+faceDatabase = imageDatastore('Database', ...
+    'IncludeSubfolders', true, ...
+    'LabelSource', 'foldernames');
+
+% Step 3: Extract Features for Known Faces
+featureDatabase = [];
+labels = faceDatabase.Labels;
+
+disp('Extracting features from known faces...');
+for i = 1:numel(faceDatabase.Files)
+    img = readimage(faceDatabase, i);
+    img = imresize(img, inputSize(1:2)); % Resize to input size of the network
+    features = activations(net, img, 'fc1000'); % Extract features from the last layer
+    featureDatabase = [featureDatabase; features(:)'];
+end
+disp('Feature extraction complete.');
+
+% Step 4: Capture or Load an Image for Recognition
+% Use a webcam or load an image
+inputImg = imread('test.jpg'); % Replace 'test.jpg' with the test image path
+detector = vision.CascadeObjectDetector; % Face detector
+bbox = step(detector, inputImg); % Detect face in the image
+
+% Step 5: Process Detected Faces
+if ~isempty(bbox)
+    for i = 1:size(bbox, 1)
+        faceImg = imcrop(inputImg, bbox(i, :)); % Crop the detected face
+        faceImg = imresize(faceImg, inputSize(1:2)); % Resize to match network input
+        
+        % Extract features from the detected face
+        testFeatures = activations(net, faceImg, 'fc1000');
+        
+        % Step 6: Compare Features with Database
+        distances = pdist2(featureDatabase, testFeatures(:)', 'euclidean');
+        [minDistance, idx] = min(distances); % Find the closest match
+        
+        % Threshold for face recognition
+        if minDistance < 10 % Adjust the threshold as needed
+            recognizedPerson = labels(idx);
+            disp(['Recognized as: ', char(recognizedPerson)]);
+            
+            % Display the result
+            figure;
+            imshow(inputImg);
+            rectangle('Position', bbox(i, :), 'EdgeColor', 'g', 'LineWidth', 2);
+            text(bbox(i, 1), bbox(i, 2) - 10, char(recognizedPerson), 'Color', 'green', 'FontSize', 12);
+        else
+            disp('Face not recognized!');
+        end
+    end
+else
+    disp('No face detected!');
+end
